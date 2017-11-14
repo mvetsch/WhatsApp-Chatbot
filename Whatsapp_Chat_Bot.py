@@ -1,10 +1,19 @@
+#!/usr/bin/python
+
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 import sys
 import os
 import time
 import math
+import pickle
+from pyvirtualdisplay import Display
 
+local_storage_persistent_file = 'config'
+local_storage_keys = {'AR2vvQGmFz8O+X3Q==','Dexie.DatabaseNames', 'ECuqK2dZvWBQr2MauWAKQA==','S++2iNqlOR0a1ri1maFSuA==','WABrowserId', 'WASecretBundle', 'WAToken1', 'WAToken2', 'bQavMP78JENNWiIu7ug/oA==', 'debugCursor', 'fhM1SFL98ULqVx5VadTyxA==', 'last-wid', 'logout-token', 'remember-me', 'storage_test', 'whatsapp-mutex'}
+
+display = Display(visible=0, size=(1920, 1080))
+display.start()
 
 class Message():
     def __init__(self, user, message):
@@ -15,131 +24,69 @@ class Message():
         return self.message == other.message
 
 
-if os.name == "nt":
-    driverPath = "driver/chromedriver_2.24.exe"
-    dataPath = "Data"
-else:
-    driverPath = "driver/chromedriver"
-    dataPath = "Data/ChatBot"
+def store_local_storage(driver):
+    driver.switch_to_window(driver.window_handles[0])
+    data = {}
+    for key in local_storage_keys:
+        data[key] = driver.execute_script("return window.localStorage.getItem('" + key + "');")
+
+    pickle.dump(data, open('config', 'w'))
+
+def restore_local_storage(driver):
+    driver.switch_to_window(driver.window_handles[0])
+    data = pickle.load(open('config', 'r'))
+    for key in data:
+        driver.execute_script("window.localStorage.setItem('" + key + "','" + str(data[key]) + "');");
+
+
+driverPath = "driver/chromedriver"
+dataPath = "Data/ChatBot"
 
 options = webdriver.ChromeOptions()
 options.add_argument("--user-data-dir=" + dataPath)
-driver = webdriver.Chrome(chrome_options=options, executable_path=driverPath)
+driver = webdriver.Chrome(chrome_options=options)
 driver.get('https://web.whatsapp.com')
-driver.execute_script("window.open('','_blank');")
-driver.switch_to_window(driver.window_handles[0])
-driver.switch_to_window(driver.window_handles[1])
-driver.get('http://www.square-bear.co.uk/mitsuku/nfchat.htm')
+if os.path.exists('config'):
+    print 'restore localStorage' 
+    restore_local_storage(driver)
+driver.get('https://web.whatsapp.com')
 driver.switch_to_window(driver.window_handles[0])
 
-input("Choose a chat on whatsapp and press enter : ")
 chatHistory = []
 replyQueue = []
 firstRun = True
 
 print("Starting...")
 
-while True:
+def view_is_loaded():
     try:
-        driver.switch_to_window(driver.window_handles[0])
-        usersDiv = driver.find_element_by_id("side")
-        messageDiv = driver.find_element_by_id("main")
-        messageList = messageDiv.find_element_by_class_name("message-list")
-        messageList = messageList.find_elements_by_class_name("msg")
+        driver.find_element_by_id("pane-side")
+        return True
+    except:
+        return False 
 
-        newMessages = []
-        for message in reversed(messageList):
-            bubbleText = None
-            try:
-                bubbleText = message.find_element_by_class_name(
-                    "message-chat").find_element_by_class_name("bubble")
-            except:
-                pass
+while not view_is_loaded():  
+    print 'sleep some time until it is loaded' 
+    time.sleep(1)
 
-            if bubbleText is not None:
-                author = "Unknown"
-                msgObj = None
-                if "has-author" in bubbleText.get_attribute("class"):
-                    try:
-                        author = bubbleText.find_element_by_class_name(
-                            "message-author").find_element_by_class_name("emojitext").text
-                    except Exception as e:
-                        pass
-                elif "msg-group" in message.get_attribute("class"):
-                    author = "Akshay Aradhya"
-                try:
-                    text_message = bubbleText.find_element_by_class_name(
-                        "message-text").find_element_by_class_name("emojitext").text
-                    if len(text_message) > 0:
-                        msgObj = Message(author, text_message)
-                except Exception as e:
-                    pass
+target = sys.argv[1]
+message = sys.argv[2]
 
-                if len(chatHistory) > 0 and (msgObj is not None) and msgObj == chatHistory[-1]:
-                    break
-                elif msgObj is not None:
-                    newMessages.append(msgObj)
+open_chats = driver.find_elements_by_class_name("chat-title")
 
-        # print("New Messages : ", len(newMessages))
-        for message in reversed(newMessages):
-            chatHistory.append(message)
+for l in open_chats:
+    if l.text.startswith(target):
+        l.click()
 
-        # Update Unknown Users
-        for i in range(len(chatHistory)):
-            if i > 0 and chatHistory[i].user == "Unknown":
-                chatHistory[i].user = chatHistory[i - 1].user
 
-        for message in reversed(newMessages):
-            if message.message[0] == "$" and firstRun == False:
-                replyQueue.append(message)
 
-        # print("Querries =", len(replyQueue))
+right = driver.find_element_by_id("main")
+inputf = right.find_element_by_class_name("pluggable-input-body");
+inputf.click()
+print dir(inputf)
+inputf.send_keys(message)
 
-        firstRun = False
-        if len(replyQueue) == 0:
-            continue
+button = right.find_element_by_class_name("compose-btn-send");
+button.click()
 
-        # Switch tabs and get Response
-        driver.switch_to_window(driver.window_handles[1])
-        driver.switch_to_default_content()
-        driver.switch_to.frame('input')
-        textField = driver.find_elements_by_tag_name("input")[1]
-
-        responses = []
-
-        for message in replyQueue:
-
-            textField.send_keys(message.message[1:] + Keys.ENTER)
-            responseBody = None
-            fontTags = driver.find_elements_by_tag_name("font")
-
-            for tag in fontTags:
-                if tag.get_attribute("face") == "Trebuchet MS,Arial" and tag.get_attribute("color") == "#000000":
-                    responseBody = tag
-                    break
-
-            start = responseBody.text.find("Mitsuku")
-            end = responseBody.text.find("You", 4)
-            firstName = message.user.split(' ')[0]
-            resp = responseBody.text[start + 10:end - 2]
-            print(start, end, repr(resp))
-            responses.append("@" + firstName + " : " + resp)
-
-        replyQueue = []
-        # Switch tabs and reply on whatsapp
-        driver.switch_to_window(driver.window_handles[0])
-        inputMessage = messageDiv.find_element_by_class_name('input')
-
-        for response in responses:
-            lines = response.split('\n')
-            for line in lines:
-                inputMessage.send_keys(line)
-                inputMessage.send_keys(Keys.SHIFT, Keys.ENTER)
-                print("SE")
-            inputMessage.send_keys(Keys.ENTER)
-            print("E")
-
-    except Exception as e:
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        print(exc_type, fname, exc_tb.tb_lineno)
+store_local_storage(driver)
